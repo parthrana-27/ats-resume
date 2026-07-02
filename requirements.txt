@@ -1,0 +1,17 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+python-multipart
+numpy
+pypdf
+docx2txt
+langchain
+langgraph
+langchain-google-genai
+google-generativeai
+httpx
+jinja2
+python-jose[cryptography]
+passlib[bcrypt]
