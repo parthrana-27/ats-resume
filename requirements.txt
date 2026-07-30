@@ -15,3 +15,4 @@ httpx
 jinja2
 python-jose[cryptography]
 passlib[bcrypt]
+sentence-transformers

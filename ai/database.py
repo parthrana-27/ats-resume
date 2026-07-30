@@ -113,11 +113,33 @@ COMMON_SKILLS_VOCAB = [
     "microservices", "unit testing", "pytest", "github actions", "sql", "nosql", "cicd", "terraform"
 ]
 
+_hf_model = None
+
+def get_hf_model():
+    """Lazily load and cache the Hugging Face sentence-transformers model."""
+    global _hf_model
+    if _hf_model is None:
+        from sentence_transformers import SentenceTransformer
+        model_name = getattr(settings, "EMBEDDING_MODEL_NAME", "all-MiniLM-L6-v2")
+        _hf_model = SentenceTransformer(model_name)
+    return _hf_model
+
 def generate_local_embedding(skills: List[str], text_content: str = "") -> List[float]:
     """
-    Generates a local sparse-like semantic representation (vector) based on a vocabulary 
-    of common skills and text frequencies, ensuring we can calculate real similarities.
+    Generates a local semantic representation (vector) using a Hugging Face SentenceTransformer
+    model, with a fallback to a vocabulary-based vector if the model fails to load or encode.
     """
+    try:
+        model = get_hf_model()
+        # Embed the raw text content if available; otherwise embed the skills list
+        input_text = text_content if text_content.strip() else ", ".join(skills)
+        if input_text.strip():
+            embedding = model.encode(input_text)
+            return embedding.tolist()
+    except Exception as e:
+        print(f"Hugging Face embedding generation failed: {e}. Falling back to vocabulary-based representation.")
+
+    # Fallback: Vocabulary-based representation
     vector = [0.0] * len(COMMON_SKILLS_VOCAB)
     text_lower = text_content.lower()
     
@@ -140,3 +162,4 @@ def generate_local_embedding(skills: List[str], text_content: str = "") -> List[
     if norm > 0:
         arr = arr / norm
     return arr.tolist()
+

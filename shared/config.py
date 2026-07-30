@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Auto-resolves to True if no API keys are found.
     FORCE_MOCK_AI: bool = False
     
+    # Hugging Face embedding model name for local offline embeddings
+    EMBEDDING_MODEL_NAME: str = "all-MiniLM-L6-v2"
+    
     @property
     def is_mock_mode(self) -> bool:
         if self.FORCE_MOCK_AI:
