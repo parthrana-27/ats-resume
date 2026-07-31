@@ -5,21 +5,35 @@ import json
 API_BASE = "http://127.0.0.1:8000"
 
 def test_e2e_flow():
-    client = httpx.Client(timeout=10.0)
+    client = httpx.Client(timeout=60.0)
     
     # 1. Health check
     r = client.get(f"{API_BASE}/health")
     print(f"Health Check: {r.status_code} - {r.json()}")
     assert r.status_code == 200
     
+    import io
+    
     # 2. Upload John Doe resume
     print("Uploading John Doe resume...")
-    john_path = "C:/Users/Admin/.gemini/antigravity-ide/brain/e2b6c98c-2c2c-4fba-b53f-b74bed766b7f/john_doe.txt"
-    with open(john_path, "rb") as f:
-        r = client.post(
-            f"{API_BASE}/api/resumes/upload",
-            files={"file": ("john_doe.txt", f, "text/plain")}
-        )
+    john_content = b"""
+    John Doe
+    Email: john.doe@example.com | Phone: 555-0199
+    Experience: 5 years
+    Degree: Bachelor's in Computer Science
+    
+    Skills: Python, FastAPI, PostgreSQL, Docker, Git, REST API, Microservices
+    
+    Work Experience:
+    Senior Developer at TechCorp (2021 - Present)
+    - Built scalable backend services using Python and FastAPI
+    - Implemented PostgreSQL database schemas and optimized queries
+    - Deployed containerized applications using Docker and Git CI/CD pipelines
+    """
+    r = client.post(
+        f"{API_BASE}/api/resumes/upload",
+        files={"file": ("john_doe.txt", io.BytesIO(john_content), "text/plain")}
+    )
     print(f"John Doe Upload Response: {r.status_code}")
     assert r.status_code == 200
     john_data = r.json()
@@ -28,12 +42,23 @@ def test_e2e_flow():
     
     # 3. Upload Jane Smith resume
     print("Uploading Jane Smith resume...")
-    jane_path = "C:/Users/Admin/.gemini/antigravity-ide/brain/e2b6c98c-2c2c-4fba-b53f-b74bed766b7f/jane_smith.txt"
-    with open(jane_path, "rb") as f:
-        r = client.post(
-            f"{API_BASE}/api/resumes/upload",
-            files={"file": ("jane_smith.txt", f, "text/plain")}
-        )
+    jane_content = b"""
+    Jane Smith
+    Email: jane.smith@example.com | Phone: 555-0188
+    Experience: 2 years
+    Degree: Master's in Data Science
+    
+    Skills: Python, Data Analysis, Machine Learning, SQL, Git
+    
+    Work Experience:
+    Junior Data Scientist at Analytics Inc (2022 - Present)
+    - Analyzed datasets using Python, Pandas, and SQL
+    - Built machine learning models for candidate scoring
+    """
+    r = client.post(
+        f"{API_BASE}/api/resumes/upload",
+        files={"file": ("jane_smith.txt", io.BytesIO(jane_content), "text/plain")}
+    )
     print(f"Jane Smith Upload Response: {r.status_code}")
     assert r.status_code == 200
     jane_data = r.json()

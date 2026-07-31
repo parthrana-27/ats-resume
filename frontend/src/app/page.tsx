@@ -1178,8 +1178,11 @@ export default function ATSDashboard() {
                   <input 
                     type="number" 
                     required
-                    value={jobExp}
-                    onChange={(e) => setJobExp(parseInt(e.target.value))}
+                    value={isNaN(jobExp) ? "" : jobExp}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10);
+                      setJobExp(isNaN(val) ? 0 : val);
+                    }}
                     min="0"
                     max="20"
                     className="w-full bg-zinc-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-white"
