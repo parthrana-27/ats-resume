@@ -1,0 +1,34 @@
+services:
+  # FastAPI Backend Web Service with Persistent SQLite Storage
+  - type: web
+    name: ats-resume-backend
+    env: python
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    disk:
+      name: sqlite-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:////var/data/ats_intelligence.db
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: FORCE_MOCK_AI
+        value: "False"
+
+  # Next.js Frontend Web Service
+  - type: web
+    name: ats-resume-frontend
+    env: node
+    region: oregon
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NEXT_PUBLIC_API_BASE
+        fromService:
+          type: web
+          name: ats-resume-backend
+          property: url
