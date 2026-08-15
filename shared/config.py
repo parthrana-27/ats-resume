@@ -13,8 +13,13 @@ class Settings(BaseSettings):
     # API Keys
     GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY", None)
     OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY", None)
+    HUGGINGFACE_API_KEY: str | None = os.getenv("HUGGINGFACE_API_KEY", None)
     
     # AI Engine Options
+    # Choose between "gemini" or "huggingface"
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "huggingface")
+    HUGGINGFACE_MODEL: str = os.getenv("HUGGINGFACE_MODEL", "meta-llama/Meta-Llama-3-8B-Instruct")
+    
     # If True, bypasses LLM calls and uses high-fidelity local regex and template rule engines.
     # Auto-resolves to True if no API keys are found.
     FORCE_MOCK_AI: bool = False
@@ -26,7 +31,7 @@ class Settings(BaseSettings):
     def is_mock_mode(self) -> bool:
         if self.FORCE_MOCK_AI:
             return True
-        return not (self.GEMINI_API_KEY or self.OPENAI_API_KEY)
+        return not (self.GEMINI_API_KEY or self.OPENAI_API_KEY or self.HUGGINGFACE_API_KEY)
     
     class Config:
         env_file = "d:/ats-resume/.env"

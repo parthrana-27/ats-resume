@@ -5,6 +5,7 @@ from typing import TypedDict, Annotated, List, Dict, Any
 from operator import add
 from langgraph.graph import StateGraph, START, END
 import google.generativeai as genai
+import httpx
 from shared.config import settings
 from ai.database import Candidate, JobDescription, generate_local_embedding
 
@@ -23,6 +24,50 @@ class AgentState(TypedDict):
     final_report: Dict[str, Any]
 
 # Helper function to call Gemini
+
+def call_huggingface_api(prompt: str, system_instruction: str = "", json_mode: bool = False) -> str:
+    """Wrapper to call Hugging Face Inference API."""
+    if not settings.HUGGINGFACE_API_KEY:
+        raise ValueError("HUGGINGFACE_API_KEY not set")
+    
+    headers = {
+        "Authorization": f"Bearer {settings.HUGGINGFACE_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    
+    # Simple format for text-generation/chat models on HF
+    # Constructing a basic prompt depending on model capabilities
+    if system_instruction:
+        full_prompt = f"System: {system_instruction}\nUser: {prompt}\nAssistant:"
+    else:
+        full_prompt = f"User: {prompt}\nAssistant:"
+        
+    payload = {
+        "inputs": full_prompt,
+        "parameters": {
+            "max_new_tokens": 1024,
+            "return_full_text": False
+        }
+    }
+    
+    api_url = f"https://api-inference.huggingface.co/models/{settings.HUGGINGFACE_MODEL}"
+    
+    response = httpx.post(api_url, headers=headers, json=payload, timeout=60.0)
+    response.raise_for_status()
+    
+    data = response.json()
+    if isinstance(data, list) and len(data) > 0 and "generated_text" in data[0]:
+        return data[0]["generated_text"]
+    return str(data)
+
+def call_llm_api(prompt: str, system_instruction: str = "", json_mode: bool = False) -> str:
+    """Router to call the appropriate LLM provider."""
+    provider = settings.LLM_PROVIDER.lower()
+    if provider == "huggingface":
+        return call_huggingface_api(prompt, system_instruction, json_mode)
+    else:
+        return call_gemini_api(prompt, system_instruction, json_mode)
+
 def call_gemini_api(prompt: str, system_instruction: str = "", json_mode: bool = False) -> str:
     """Wrapper to call Gemini API using the official SDK."""
     if not settings.GEMINI_API_KEY:
@@ -120,7 +165,7 @@ def parsing_agent(state: AgentState) -> dict:
     }
     
     # 2. Upgrade to LLM if live key is available
-    if settings.GEMINI_API_KEY:
+    if not settings.is_mock_mode:
         try:
             prompt = (
                 f"Analyze the following candidate resume text. Extract details in JSON format matching the schema:\n"
@@ -136,7 +181,7 @@ def parsing_agent(state: AgentState) -> dict:
                 f"}}\n\n"
                 f"Resume Content:\n{raw_text}"
             )
-            response = call_gemini_api(
+            response = call_llm_api(
                 prompt=prompt,
                 system_instruction="You are an expert resume parser. Respond ONLY with valid JSON conforming to the schema.",
                 json_mode=True
@@ -210,7 +255,7 @@ def skills_agent(state: AgentState) -> dict:
         "skills_match_ratio": len(matched) / len(job_req_skills) if job_req_skills else 1.0
     }
     
-    if settings.GEMINI_API_KEY:
+    if not settings.is_mock_mode:
         try:
             prompt = (
                 f"Compare the candidate's skills with the job requirements. Map synonyms (e.g. Docker matching Containerization). "
@@ -223,7 +268,7 @@ def skills_agent(state: AgentState) -> dict:
                 f"  \"skills_match_ratio\": float\n"
                 f"}}"
             )
-            response = call_gemini_api(
+            response = call_llm_api(
                 prompt=prompt,
                 system_instruction="You are a professional recruiting skills evaluator. Respond ONLY with JSON.",
                 json_mode=True
@@ -277,7 +322,7 @@ def experience_agent(state: AgentState) -> dict:
         "recommended_learning_path": learning_path
     }
     
-    if settings.GEMINI_API_KEY:
+    if not settings.is_mock_mode:
         try:
             prompt = (
                 f"Evaluate the candidate's career level and project relevance against the job description.\n"
@@ -290,7 +335,7 @@ def experience_agent(state: AgentState) -> dict:
                 f"  \"recommended_learning_path\": [\"string\"]\n"
                 f"}}"
             )
-            response = call_gemini_api(
+            response = call_llm_api(
                 prompt=prompt,
                 system_instruction="You are a career consultant and ATS screening expert. Respond ONLY with JSON.",
                 json_mode=True
@@ -381,7 +426,7 @@ def matching_agent(state: AgentState) -> dict:
         }
     ]
     
-    if settings.GEMINI_API_KEY:
+    if not settings.is_mock_mode:
         try:
             # 1. Ask Gemini to refine semantic score & improvement tips
             prompt = (
@@ -404,7 +449,7 @@ def matching_agent(state: AgentState) -> dict:
                 f"  }}\n"
                 f"}}"
             )
-            response = call_gemini_api(
+            response = call_llm_api(
                 prompt=prompt,
                 system_instruction="You are an expert technical interviewer and executive recruiter. Respond ONLY in JSON.",
                 json_mode=True
@@ -447,7 +492,7 @@ def report_agent(state: AgentState) -> dict:
         f"({int(match_ana['overall_score'])}% match score) for the target role."
     )
     
-    if settings.GEMINI_API_KEY:
+    if not settings.is_mock_mode:
         try:
             prompt = (
                 f"Write a concise candidate summary and screening recommendation for a recruiter.\n"
@@ -458,7 +503,7 @@ def report_agent(state: AgentState) -> dict:
                 f"Missing Skills: {skills_ana['missing_skills']}\n"
                 f"Education: {parsed['education']}\n"
             )
-            response = call_gemini_api(
+            response = call_llm_api(
                 prompt=prompt,
                 system_instruction="You are a senior recruiter. Write a 3-4 sentence professional summary of the candidate's alignment, highlights, and major gaps."
             )
