@@ -1,1241 +1,593 @@
-"use client";
-
-import React, { useState, useEffect, useRef } from "react";
-import { 
-  Briefcase, 
-  UploadCloud, 
-  FileText, 
-  Award, 
-  BookOpen, 
-  CheckCircle, 
-  AlertTriangle, 
-  BookOpenText,
-  UserCheck, 
-  Sparkles, 
-  Activity, 
-  Users, 
-  ListOrdered, 
+import React from "react";
+import Link from "next/link";
+import {
+  Sparkles,
   ArrowRight,
+  Play,
+  Search,
+  Bot,
+  ShieldCheck,
+  Gauge,
+  FileInput,
+  Zap,
+  UploadCloud,
+  CheckCircle,
+  FileText,
+  Database,
+  Server,
+  Cpu,
+  ChevronRight,
+  BarChart3,
+  GitBranch,
+  Lock,
   TrendingUp,
-  Clock,
-  Terminal,
-  HelpCircle,
-  Code2,
-  ThumbsUp,
-  MessageSquareCode,
-  ArrowUpDown
+  Users,
+  MessageSquare,
+  BookOpen,
+  Award,
+  Square,
+
 } from "lucide-react";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+// ─── Typed data arrays ─────────────────────────────────────────────────────────
 
-interface Candidate {
-  id: string;
-  name: string;
-  email?: string;
-  phone?: string;
-  skills: string[];
-  experience_years: number;
-  education?: string;
-  certifications?: string[];
-  projects?: string[];
-  created_at: string;
-}
-
-interface Job {
-  id: string;
+interface Feature {
+  icon: React.ElementType;
   title: string;
-  department?: string;
-  raw_text: string;
-  required_skills: string[];
-  preferred_skills: string[];
-  experience_years: number;
-  education?: string;
-  created_at: string;
+  description: string;
 }
 
-interface MatchResult {
-  match_id: string;
-  candidate: {
-    candidate_id: string;
-    name: string;
-    email?: string;
-    phone?: string;
-    skills: string[];
-    experience_years: number;
-    education?: string;
-    certifications: string[];
-    projects: string[];
-  };
-  job_id: string;
-  overall_score: number;
-  semantic_match_score: number;
-  skills_match_score: number;
-  experience_match_score: number;
-  education_match_score: number;
-  projects_score: number;
-  certifications_score: number;
-  ats_compatibility_score: number;
-  gap_analysis: {
-    missing_skills: string[];
-    priority: string;
-    recommended_learning_path: string[];
-  };
-  resume_improvement: {
-    before: string;
-    after: string;
-    rationale: string;
-  }[];
-  ai_summary: string;
-  interview_questions: {
-    technical: string[];
-    behavioral: string[];
-    coding: string[];
-    project: string[];
-  };
+const FEATURES: Feature[] = [
+  {
+    icon: Search,
+    title: "Hybrid Retrieval Engine",
+    description:
+      "Combines BM25 keyword precision with cosine-similarity vector search on SQLite embeddings for unmatched candidate-to-job relevance.",
+  },
+  {
+    icon: Bot,
+    title: "Multi-Agent LangGraph Pipeline",
+    description:
+      "Parsing, skill extraction, experience scoring, and synthesis are handled by a stateful LangGraph agent graph—not a single prompt.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "AI Skill Gap Analysis",
+    description:
+      "Automatically surfaces missing skills with priority levels (High / Medium / Low) and a personalised learning path roadmap per candidate.",
+  },
+  {
+    icon: Gauge,
+    title: "Transparent Ranking Formula",
+    description:
+      "Scores derive from six measurable dimensions: Semantic 40%, Skills 20%, Experience 15%, Education 10%, Projects 10%, Certs 5%.",
+  },
+  {
+    icon: MessageSquare,
+    title: "AI Mock Interview Simulator",
+    description:
+      "Generates technical, behavioral, coding, and project questions per candidate. Simulate answers and receive AI-graded diagnostic reviews.",
+  },
+  {
+    icon: BarChart3,
+    title: "Side-by-Side Comparison Matrix",
+    description:
+      "Compare candidates across all scoring dimensions in a dense data table. The Recruiter Copilot explains rankings in plain English via RAG.",
+  },
+];
+
+interface Step {
+  number: string;
+  title: string;
+  description: string;
 }
 
-interface Analytics {
-  total_resumes: number;
-  total_jobs: number;
-  average_score: number;
-  parsing_latency_ms: number;
-  token_usage: number;
-  recent_activity: {
-    id: string;
-    type: string;
-    message: string;
-    time: string;
-  }[];
+const STEPS: Step[] = [
+  {
+    number: "01",
+    title: "Upload Resumes",
+    description:
+      "Upload PDF, DOCX, or TXT files. The parsing agent extracts name, skills, experience, education, and projects automatically.",
+  },
+  {
+    number: "02",
+    title: "Post a Job Opening",
+    description:
+      "Paste your job description. The JD agent auto-detects required skills, experience level, and education requirements.",
+  },
+  {
+    number: "03",
+    title: "AI Ranks Candidates",
+    description:
+      "The LangGraph pipeline scores every candidate against the job using the weighted formula and local vector embeddings.",
+  },
+];
+
+interface RoleRow {
+  role: string;
+  access: string;
+  upload: boolean;
+  compare: boolean;
+  manage: boolean;
 }
 
-export default function ATSDashboard() {
-  // Navigation
-  const [activeTab, setActiveTab] = useState<"dashboard" | "recruiter" | "candidate">("dashboard");
-  
-  // Data State
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [analytics, setAnalytics] = useState<Analytics | null>(null);
-  
-  // Selections
-  const [selectedJobId, setSelectedJobId] = useState<string>("");
-  const [screenedCandidates, setScreenedCandidates] = useState<any[]>([]);
-  const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
-  const [matchDetail, setMatchDetail] = useState<MatchResult | null>(null);
-  const [comparisonResult, setComparisonResult] = useState<any>(null);
-  const [selectedCompareIds, setSelectedCompareIds] = useState<string[]>([]);
-  
-  // Forms & Modal state
-  const [jobTitle, setJobTitle] = useState("");
-  const [jobDept, setJobDept] = useState("");
-  const [jobText, setJobText] = useState("");
-  const [jobExp, setJobExp] = useState(2);
-  const [jobEdu, setJobEdu] = useState("Bachelor's");
-  const [isUploading, setIsUploading] = useState(false);
-  const [isScreening, setIsScreening] = useState(false);
-  const [showJobModal, setShowJobModal] = useState(false);
-  
-  // Simulator State
-  const [activeQuestion, setActiveQuestion] = useState<{ category: string; question: string } | null>(null);
-  const [simulatedAnswer, setSimulatedAnswer] = useState<string>("");
-  const [simulationFeedback, setSimulationFeedback] = useState<string>("");
-  const [isSimulating, setIsSimulating] = useState(false);
-  
-  // Copilot State
-  const [copilotQuery, setCopilotQuery] = useState("");
-  const [copilotResponse, setCopilotResponse] = useState("");
-  const [isCopilotThinking, setIsCopilotThinking] = useState(false);
+const ROLES: RoleRow[] = [
+  { role: "Admin", access: "All Candidates & Jobs", upload: true, compare: true, manage: true },
+  { role: "Recruiter", access: "Dept. Candidates + All Jobs", upload: true, compare: true, manage: false },
+  { role: "Hiring Manager", access: "Assigned Job Pipelines", upload: false, compare: true, manage: false },
+];
 
-  // File Upload Reference
-  const fileInputRef = useRef<HTMLInputElement>(null);
+interface TechItem {
+  label: string;
+}
 
-  // Fetch base metrics & logs
-  const refreshData = async () => {
-    try {
-      const resJobs = await fetch(`${API_BASE}/api/jobs`);
-      const jobsData = await resJobs.json();
-      setJobs(jobsData);
-      if (jobsData.length > 0 && !selectedJobId) {
-        setSelectedJobId(jobsData[0].id);
-      }
-      
-      const resCands = await fetch(`${API_BASE}/api/candidates`);
-      setCandidates(await resCands.json());
-      
-      const resStats = await fetch(`${API_BASE}/api/analytics`);
-      setAnalytics(await resStats.json());
-    } catch (e) {
-      console.error("Error connecting to backend API: ", e);
-    }
-  };
+const TECH: TechItem[] = [
+  { label: "FastAPI" },
+  { label: "LangGraph" },
+  { label: "SQLite + pgvector" },
+  { label: "Next.js 16" },
+  { label: "Gemini / OpenAI" },
+  { label: "Python 3.10+" },
+];
 
-  useEffect(() => {
-    refreshData();
-  }, []);
+// ─── Sub-components ────────────────────────────────────────────────────────────
 
-  // Fetch candidate rankings when selected job changes
-  useEffect(() => {
-    if (selectedJobId) {
-      fetchRankedCandidates(selectedJobId);
-      setMatchDetail(null);
-    }
-  }, [selectedJobId]);
-
-  const fetchRankedCandidates = async (jobId: string) => {
-    try {
-      const res = await fetch(`${API_BASE}/api/jobs/${jobId}/candidates`);
-      const data = await res.json();
-      setScreenedCandidates(data);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  // Upload Resume handler
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    setIsUploading(true);
-    const files = Array.from(e.target.files);
-    
-    try {
-      for (const file of files) {
-        const formData = new FormData();
-        formData.append("file", file);
-        
-        await fetch(`${API_BASE}/api/resumes/upload`, {
-          method: "POST",
-          body: formData,
-        });
-      }
-      await refreshData();
-      if (selectedJobId) {
-        fetchRankedCandidates(selectedJobId);
-      }
-    } catch (err) {
-      console.error("Upload error", err);
-    } finally {
-      setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
-  // Create Job Description handler
-  const handleCreateJob = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!jobTitle || !jobText) return;
-    
-    try {
-      const res = await fetch(`${API_BASE}/api/jobs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: jobTitle,
-          department: jobDept || "Engineering",
-          raw_text: jobText,
-          experience_years: jobExp,
-          education: jobEdu
-        }),
-      });
-      const newJob = await res.json();
-      setJobs(prev => [newJob, ...prev]);
-      setSelectedJobId(newJob.id);
-      setShowJobModal(false);
-      setJobTitle("");
-      setJobDept("");
-      setJobText("");
-      refreshData();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Trigger Candidate Screen / Details Fetch
-  const handleSelectCandidate = async (candidateId: string) => {
-    if (!selectedJobId) return;
-    setIsScreening(true);
-    setSelectedCandidateId(candidateId);
-    
-    try {
-      const formData = new FormData();
-      formData.append("candidate_id", candidateId);
-      formData.append("job_id", selectedJobId);
-      
-      const res = await fetch(`${API_BASE}/api/screen`, {
-        method: "POST",
-        body: formData,
-      });
-      const data = await res.json();
-      setMatchDetail(data);
-      setActiveQuestion(null);
-      setSimulatedAnswer("");
-      setSimulationFeedback("");
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsScreening(false);
-    }
-  };
-
-  // Toggle selected candidate for comparison matrix
-  const handleToggleCompare = (id: string) => {
-    setSelectedCompareIds(prev => 
-      prev.includes(id) ? prev.filter(cId => cId !== id) : [...prev, id]
-    );
-  };
-
-  // Trigger Candidates Compare
-  const handleCompareTrigger = async () => {
-    if (selectedCompareIds.length < 2) return;
-    
-    try {
-      const queryParams = new URLSearchParams();
-      queryParams.append("job_id", selectedJobId);
-      selectedCompareIds.forEach(id => queryParams.append("candidate_ids", id));
-      
-      const res = await fetch(`${API_BASE}/api/compare?${queryParams.toString()}`);
-      const data = await res.json();
-      setComparisonResult(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // Simulate Practice Answer
-  const handleSimulateAnswer = async (category: string, question: string) => {
-    setIsSimulating(true);
-    setSimulatedAnswer("");
-    setSimulationFeedback("");
-    setActiveQuestion({ category, question });
-    
-    try {
-      // Simulate answer after delay
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      let answer = "";
-      let review = "";
-      
-      if (category === "technical") {
-        answer = "In standard network setups, we define bridge networks or container links. If using Kubernetes, we deploy pods containing containers that share the network namespace. We expose them using services or Ingress controllers, allowing target discovery through coreDNS.";
-        review = "Grade: A. The candidate demonstrates sound conceptual knowledge of Kubernetes routing, namespaces, and coreDNS. Strong vocabulary usage.";
-      } else if (category === "behavioral") {
-        answer = "I once encountered a database lock issue during high concurrent transaction traffic. Instead of rushing, I set up logs to check active transaction locks, isolated the bottleneck in our query execution loops, optimized index patterns, and reduced response times by 30%.";
-        review = "Grade: A+. Highlights troubleshooting methodology, provides concrete metrics (30% latency reduction), and communicates structural resolutions.";
-      } else if (category === "coding") {
-        answer = "To implement a sliding-window rate limiter, we can store request timestamps in an in-memory queue or Redis sorted set. For each request, we prune timestamps older than the window limit, check if the size exceeds threshold, and return HTTP 429 if rate limit is exceeded.";
-        review = "Grade: B+. The algorithm description is robust. Code details on locking or token buckets could enrich this answer.";
-      } else {
-        answer = "For our Fraud Detection System, we processed real-time events. We implemented feature aggregation to extract transactions statistics, built an anomaly scoring model, and integrated PostgreSQL to maintain transactional states for subsequent reviews.";
-        review = "Grade: A. Good architectural breakdown. Explains PostgreSQL choice for storage and consistency.";
-      }
-      
-      setSimulatedAnswer(answer);
-      setSimulationFeedback(review);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsSimulating(false);
-    }
-  };
-
-  // Recruiter Copilot Query
-  const handleCopilotQuery = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!copilotQuery.trim() || screenedCandidates.length < 2) return;
-    setIsCopilotThinking(true);
-    setCopilotResponse("");
-    
-    try {
-      // Fetch dynamic explanation
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      const c1 = screenedCandidates[0];
-      const c2 = screenedCandidates[1];
-      
-      setCopilotResponse(
-        `Based on the semantic match algorithms and job constraints:\n\n` +
-        `• **Candidate A (${c1.name})** ranked higher (#1, ${intVal(c1.overall_score)}%) than **Candidate B (${c2.name})** (#2, ${intVal(c2.overall_score)}%).\n` +
-        `• **Skill Set**: ${c1.name} possesses ${intVal(c1.skills_match_score)}% of required skills (including key keywords matching the job description requirements), whereas ${c2.name} matches ${intVal(c2.skills_match_score)}%.\n` +
-        `• **Semantic Alignment**: Vector analysis confirms that ${c1.name}'s experience narrative aligns closer to the engineering responsibilities (Semantic Match Score: ${intVal(c1.semantic_match_score)}% vs ${intVal(c2.semantic_match_score)}%).\n` +
-        `• **Experience Gap**: ${c1.name} has ${c1.experience_years} years of relevant experience, closely matching the target requirement.`
-      );
-    } catch (err) {
-      console.error(err);
-      setCopilotResponse("Failed to compute candidate rankings. Check database connections.");
-    } finally {
-      setIsCopilotThinking(false);
-    }
-  };
-
-  const intVal = (val: any) => Math.round(val || 0);
-
+function FeatureCard({ icon: Icon, title, description }: Feature) {
   return (
-    <div className="min-h-screen bg-[#09090b] text-[#f4f4f5] flex flex-col">
-      {/* Top Banner Header */}
-      <header className="sticky top-0 z-40 border-b border-white/8 bg-[#09090b]/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
-              <Sparkles className="h-5 w-5 text-white animate-pulse" />
+    <div className="group flex flex-col p-6 bg-white border border-zinc-200 rounded-xl shadow-sm hover:shadow-md hover:border-zinc-300 transition-all duration-200">
+      <div className="h-10 w-10 flex items-center justify-center rounded-lg bg-blue-50 border border-blue-100 mb-4">
+        <Icon className="h-5 w-5 text-blue-600" />
+      </div>
+      <h3 className="text-base font-semibold text-zinc-900 tracking-tight mb-2">
+        {title}
+      </h3>
+      <p className="text-sm text-zinc-500 leading-relaxed">{description}</p>
+    </div>
+  );
+}
+
+function StepCard({ number, title, description, children }: Step & { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col bg-white border border-zinc-200 rounded-xl shadow-sm overflow-hidden">
+      <div className="px-6 py-5 border-b border-zinc-100">
+        <span className="text-xs font-bold text-blue-600 tracking-widest uppercase">Step {number}</span>
+        <h4 className="text-base font-semibold text-zinc-900 tracking-tight mt-1">{title}</h4>
+        <p className="text-sm text-zinc-500 leading-relaxed mt-1">{description}</p>
+      </div>
+      <div className="flex-1 p-6 bg-zinc-50 flex items-center justify-center">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─── Landing Page ──────────────────────────────────────────────────────────────
+
+export default function LandingPage() {
+  return (
+    <div className="min-h-screen bg-white text-zinc-900 font-sans antialiased">
+
+      {/* ── Sticky Navbar ─────────────────────────────────────────────────── */}
+      <header className="sticky top-0 z-50 bg-white/95 border-b border-zinc-200 backdrop-blur-sm">
+        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+          {/* Logo */}
+          <Link href="/" className="flex items-center gap-2.5 group">
+            <div className="h-8 w-8 bg-blue-600 flex items-center justify-center rounded-lg group-hover:bg-blue-700 transition-colors">
+              <Square className="h-4 w-4 text-white fill-white" />
             </div>
-            <div>
-              <h1 className="text-lg font-bold tracking-tight text-white">ATS Resume Intelligence</h1>
-              <p className="text-xs text-indigo-400 font-medium">Candidate Screening & Matching Engine</p>
-            </div>
-          </div>
-          
-          <nav className="flex space-x-1">
-            <button 
-              onClick={() => setActiveTab("dashboard")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === "dashboard" ? "bg-indigo-600/10 text-indigo-400 border-b-2 border-indigo-500" : "text-zinc-400 hover:text-white"}`}
-            >
-              Recruiter Dashboard
-            </button>
-            <button 
-              onClick={() => setActiveTab("recruiter")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === "recruiter" ? "bg-indigo-600/10 text-indigo-400 border-b-2 border-indigo-500" : "text-zinc-400 hover:text-white"}`}
-            >
-              Hiring Campaign Manager
-            </button>
-            <button 
-              onClick={() => setActiveTab("candidate")}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === "candidate" ? "bg-indigo-600/10 text-indigo-400 border-b-2 border-indigo-500" : "text-zinc-400 hover:text-white"}`}
-            >
-              Candidate Compatibility Hub
-            </button>
+            <span className="font-bold text-base tracking-tight text-zinc-900">
+              ATS Intelligence
+            </span>
+          </Link>
+
+          {/* Center Nav */}
+          <nav className="hidden md:flex items-center gap-7">
+            <a href="#features" className="text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors">Features</a>
+            <a href="#how-it-works" className="text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors">How it Works</a>
+            <a href="#security" className="text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors">Security</a>
           </nav>
+
+          {/* Right CTAs */}
+          <div className="flex items-center gap-3">
+            <a
+              href="http://127.0.0.1:8000/docs"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden md:block text-sm font-medium text-zinc-500 hover:text-zinc-900 transition-colors px-3 py-2"
+            >
+              Documentation
+            </a>
+            <Link
+              href="/dashboard"
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-sm transition-colors flex items-center gap-2"
+            >
+              Access Dashboard
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        
-        {/* ==================== TAB 1: RECRUITER DASHBOARD ==================== */}
-        {activeTab === "dashboard" && (
-          <div className="space-y-8">
-            
-            {/* Top Cards Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-              <div className="glass-panel p-6 rounded-2xl flex items-center justify-between relative overflow-hidden">
-                <div className="absolute right-0 bottom-0 translate-x-4 translate-y-4 opacity-5">
-                  <FileText className="h-32 w-32 text-indigo-400" />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-400 font-medium">Screened Resumes</p>
-                  <p className="text-3xl font-extrabold text-white mt-1">{analytics?.total_resumes || 0}</p>
-                  <p className="text-xs text-emerald-400 flex items-center mt-2">
-                    <TrendingUp className="h-3 w-3 mr-1" /> Auto-parsed profiles
-                  </p>
-                </div>
-                <div className="h-12 w-12 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
-                  <FileText className="h-6 w-6 text-indigo-400" />
-                </div>
-              </div>
+      <main>
+        {/* ── Hero ──────────────────────────────────────────────────────────── */}
+        <section className="max-w-7xl mx-auto px-6 pt-20 pb-16 text-center">
+          <div className="max-w-3xl mx-auto space-y-7">
+            {/* Badge */}
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold">
+              <Sparkles className="h-3 w-3" />
+              AI-Powered Applicant Tracking System
+            </span>
 
-              <div className="glass-panel p-6 rounded-2xl flex items-center justify-between relative overflow-hidden">
-                <div className="absolute right-0 bottom-0 translate-x-4 translate-y-4 opacity-5">
-                  <Briefcase className="h-32 w-32 text-pink-400" />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-400 font-medium">Job Openings</p>
-                  <p className="text-3xl font-extrabold text-white mt-1">{analytics?.total_jobs || 0}</p>
-                  <p className="text-xs text-zinc-500 mt-2">Active recruitment pipelines</p>
-                </div>
-                <div className="h-12 w-12 rounded-xl bg-pink-500/10 flex items-center justify-center border border-pink-500/20">
-                  <Briefcase className="h-6 w-6 text-pink-400" />
-                </div>
-              </div>
+            {/* Headline */}
+            <h1 className="text-5xl md:text-6xl font-black tracking-tight leading-[1.08] text-zinc-900">
+              Screen smarter.<br />
+              <span className="text-blue-600">Hire faster.</span>
+            </h1>
 
-              <div className="glass-panel p-6 rounded-2xl flex items-center justify-between relative overflow-hidden">
-                <div className="absolute right-0 bottom-0 translate-x-4 translate-y-4 opacity-5">
-                  <UserCheck className="h-32 w-32 text-emerald-400" />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-400 font-medium">Avg Match Score</p>
-                  <p className="text-3xl font-extrabold text-white mt-1">{analytics?.average_score || 0}%</p>
-                  <p className="text-xs text-indigo-400 mt-2">Overall applicant health</p>
-                </div>
-                <div className="h-12 w-12 rounded-xl bg-emerald-500/10 flex items-center justify-center border border-emerald-500/20">
-                  <UserCheck className="h-6 w-6 text-emerald-400" />
-                </div>
-              </div>
+            {/* Sub-headline */}
+            <p className="text-lg text-zinc-500 leading-relaxed max-w-2xl mx-auto">
+              An AI-powered resume screening platform that uses <strong className="text-zinc-700 font-semibold">LangGraph multi-agent pipelines</strong>, vector similarity, and a weighted six-dimension scoring formula to rank candidates—not keyword-match them.
+            </p>
 
-              <div className="glass-panel p-6 rounded-2xl flex items-center justify-between relative overflow-hidden">
-                <div className="absolute right-0 bottom-0 translate-x-4 translate-y-4 opacity-5">
-                  <Activity className="h-32 w-32 text-yellow-400" />
-                </div>
-                <div>
-                  <p className="text-sm text-zinc-400 font-medium">Latency & Tokens</p>
-                  <p className="text-3xl font-extrabold text-white mt-1">{analytics?.parsing_latency_ms || 0} <span className="text-sm font-normal text-zinc-400">ms</span></p>
-                  <p className="text-xs text-yellow-400 mt-2">{analytics?.token_usage || 0} active LLM tokens</p>
-                </div>
-                <div className="h-12 w-12 rounded-xl bg-yellow-500/10 flex items-center justify-center border border-yellow-500/20">
-                  <Activity className="h-6 w-6 text-yellow-400" />
-                </div>
-              </div>
+            {/* CTAs */}
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <Link
+                href="/dashboard"
+                className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold px-7 py-3 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2"
+              >
+                Get Started
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <a
+                href="http://127.0.0.1:8000/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full sm:w-auto bg-white border border-zinc-200 hover:border-zinc-300 hover:shadow-md text-zinc-700 font-semibold px-7 py-3 rounded-lg transition-all flex items-center justify-center gap-2"
+              >
+                <Play className="h-4 w-4 text-blue-600" />
+                View Live Demo
+              </a>
             </div>
-
-            {/* Quick Actions Panel */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              
-              {/* Box 1: Activity Logs */}
-              <div className="glass-panel p-6 rounded-2xl md:col-span-2 space-y-4">
-                <div className="flex items-center space-x-2 border-b border-white/5 pb-3">
-                  <Activity className="h-5 w-5 text-indigo-400" />
-                  <h3 className="font-semibold text-white">System Activity Logs</h3>
-                </div>
-                <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
-                  {analytics?.recent_activity.map((act, i) => (
-                    <div key={i} className="flex items-start space-x-3 p-3 rounded-xl bg-zinc-900/40 border border-white/5">
-                      <div className="mt-0.5">
-                        {act.type === "match" && <CheckCircle className="h-4 w-4 text-emerald-400" />}
-                        {act.type === "upload" && <UploadCloud className="h-4 w-4 text-indigo-400" />}
-                        {act.type === "job" && <Briefcase className="h-4 w-4 text-pink-400" />}
-                        {act.type === "system" && <Terminal className="h-4 w-4 text-zinc-400" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-zinc-200 leading-snug">{act.message}</p>
-                        <p className="text-xs text-zinc-500 mt-1 flex items-center">
-                          <Clock className="h-3 w-3 mr-1" /> {act.time}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Box 2: Quick Upload Zone */}
-              <div className="glass-panel p-6 rounded-2xl flex flex-col justify-between border-dashed border-2 border-white/10 hover:border-indigo-500/30 transition-all duration-200">
-                <div className="text-center py-6">
-                  <div className="h-16 w-16 mx-auto rounded-full bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20 mb-4">
-                    <UploadCloud className="h-8 w-8 text-indigo-400" />
-                  </div>
-                  <h4 className="font-semibold text-white">Screen New Candidates</h4>
-                  <p className="text-xs text-zinc-400 mt-2 max-w-[200px] mx-auto">Upload PDF, DOCX or text resumes to trigger parser</p>
-                </div>
-                
-                <input 
-                  type="file" 
-                  ref={fileInputRef}
-                  onChange={handleFileUpload}
-                  multiple
-                  accept=".pdf,.docx,.txt"
-                  className="hidden" 
-                />
-                
-                <button 
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
-                  className="w-full py-3 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm flex items-center justify-center space-x-2 transition-all shadow-lg shadow-indigo-600/10 disabled:opacity-50"
-                >
-                  {isUploading ? (
-                    <span className="flex items-center space-x-2">
-                      <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
-                      <span>Parsing Resumes...</span>
-                    </span>
-                  ) : (
-                    <>
-                      <UploadCloud className="h-4 w-4" />
-                      <span>Select Resume Files</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </div>
-            
-            {/* Recruiters Copilot */}
-            <div className="glass-panel p-6 rounded-2xl bg-gradient-to-br from-indigo-950/20 to-zinc-900 border-indigo-500/15">
-              <div className="flex items-center space-x-3 mb-4">
-                <div className="h-8 w-8 rounded-lg bg-indigo-500/10 flex items-center justify-center border border-indigo-500/25">
-                  <Sparkles className="h-4 w-4 text-indigo-400" />
-                </div>
-                <h3 className="font-semibold text-white">Recruiter AI Copilot</h3>
-              </div>
-              <p className="text-sm text-zinc-400 max-w-xl mb-6">Ask comparative screening questions (e.g. comparing the top two ranked candidates for the active job opening) to query the RAG Explanation Engine.</p>
-              
-              <form onSubmit={handleCopilotQuery} className="flex gap-2">
-                <input 
-                  type="text" 
-                  value={copilotQuery}
-                  onChange={(e) => setCopilotQuery(e.target.value)}
-                  placeholder="Why was candidate A ranked higher than candidate B?"
-                  className="flex-1 bg-zinc-950 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition text-white placeholder-zinc-500"
-                />
-                <button 
-                  type="submit" 
-                  disabled={isCopilotThinking || screenedCandidates.length < 2}
-                  className="px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm disabled:opacity-50 flex items-center space-x-2 transition"
-                >
-                  {isCopilotThinking ? (
-                    <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
-                  ) : (
-                    <span>Explain Ranking</span>
-                  )}
-                </button>
-              </form>
-
-              {copilotResponse && (
-                <div className="mt-4 p-4 rounded-xl bg-zinc-950/80 border border-indigo-500/10 text-sm leading-relaxed text-zinc-300 whitespace-pre-line">
-                  {copilotResponse}
-                </div>
-              )}
-            </div>
-
           </div>
-        )}
 
-        {/* ==================== TAB 2: HIRING CAMPAIGN MANAGER ==================== */}
-        {activeTab === "recruiter" && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            
-            {/* Left Panel: Campaigns & Active Jobs */}
-            <div className="space-y-6 lg:col-span-1">
-              <div className="glass-panel p-6 rounded-2xl space-y-4">
-                <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                  <h3 className="font-semibold text-white flex items-center space-x-2">
-                    <Briefcase className="h-5 w-5 text-indigo-400" />
-                    <span>Job Openings</span>
-                  </h3>
-                  <button 
-                    onClick={() => setShowJobModal(true)}
-                    className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition"
-                    title="Create Job Opening"
-                  >
-                    + Add
-                  </button>
+          {/* Hero Visual — Dashboard UI Mockup */}
+          <div className="mt-14 max-w-5xl mx-auto border border-zinc-200 rounded-2xl overflow-hidden shadow-xl shadow-zinc-200/60">
+            {/* Browser Chrome */}
+            <div className="flex items-center gap-2 px-4 h-11 bg-zinc-100 border-b border-zinc-200">
+              <div className="flex gap-1.5">
+                <div className="h-3 w-3 rounded-full bg-zinc-300" />
+                <div className="h-3 w-3 rounded-full bg-zinc-300" />
+                <div className="h-3 w-3 rounded-full bg-zinc-300" />
+              </div>
+              <div className="ml-4 flex-1 flex items-center justify-center">
+                <div className="bg-white border border-zinc-200 text-zinc-400 text-xs py-1 px-3 rounded-md w-56 text-center flex items-center justify-center gap-1.5">
+                  <Lock className="h-3 w-3" />
+                  localhost:3000/dashboard
                 </div>
-                
-                <div className="space-y-2">
-                  {jobs.map((job) => (
-                    <button
-                      key={job.id}
-                      onClick={() => setSelectedJobId(job.id)}
-                      className={`w-full text-left p-3.5 rounded-xl border transition-all duration-150 ${selectedJobId === job.id ? "bg-indigo-600/10 border-indigo-500/40 text-white" : "bg-zinc-900/40 border-white/5 text-zinc-400 hover:bg-zinc-900/60 hover:text-white"}`}
-                    >
-                      <p className="font-semibold text-sm truncate">{job.title}</p>
-                      <div className="flex items-center justify-between mt-2 text-xs">
-                        <span className="text-zinc-500">{job.department}</span>
-                        <span className="text-indigo-400">{job.experience_years}+ yrs req.</span>
+              </div>
+            </div>
+
+            {/* App Layout */}
+            <div className="flex h-72 bg-zinc-50">
+              {/* Sidebar */}
+              <div className="w-52 shrink-0 border-r border-zinc-200 bg-white p-3 space-y-1">
+                <p className="text-[9px] text-zinc-400 uppercase tracking-widest font-bold px-2 mb-3">Job Openings</p>
+                {["Senior Backend Eng.", "Frontend Developer", "ML Engineer"].map((job, i) => (
+                  <div key={job} className={`px-2.5 py-2 rounded-lg text-xs font-medium cursor-pointer transition-colors ${i === 0 ? "bg-blue-600 text-white" : "text-zinc-500 hover:bg-zinc-50"}`}>
+                    {job}
+                  </div>
+                ))}
+                <div className="pt-4 border-t border-zinc-100 mt-3 space-y-0.5">
+                  <p className="text-[9px] text-zinc-400 uppercase tracking-widest font-bold px-2 mb-2">Standings</p>
+                  {[
+                    { name: "Arjun Mehta", score: 91, rank: 1, color: "bg-emerald-50 text-emerald-700" },
+                    { name: "Priya Sharma", score: 78, rank: 2, color: "bg-yellow-50 text-yellow-700" },
+                    { name: "David Chen", score: 64, rank: 3, color: "bg-zinc-100 text-zinc-500" },
+                  ].map(({ name, score, rank, color }) => (
+                    <div key={name} className="flex items-center justify-between px-2 py-1.5">
+                      <span className="text-[10px] text-zinc-600 truncate font-medium">{name}</span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${color}`}>{score}%</span>
+                        <span className="text-[9px] text-zinc-400">#{rank}</span>
                       </div>
-                    </button>
+                    </div>
                   ))}
-                  {jobs.length === 0 && (
-                    <p className="text-xs text-zinc-500 text-center py-4">No jobs created. Click + Add to start.</p>
-                  )}
                 </div>
               </div>
 
-              {/* Side Rank List */}
-              {selectedJobId && (
-                <div className="glass-panel p-6 rounded-2xl space-y-4">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                    <h3 className="font-semibold text-white flex items-center space-x-2">
-                      <ListOrdered className="h-5 w-5 text-pink-400" />
-                      <span>Screened Standings</span>
-                    </h3>
-                    <button 
-                      onClick={handleCompareTrigger}
-                      disabled={selectedCompareIds.length < 2}
-                      className="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold disabled:opacity-40 text-zinc-200 transition"
-                    >
-                      Compare Matrix
-                    </button>
+              {/* Main Panel */}
+              <div className="flex-1 p-5 space-y-4 overflow-hidden bg-white">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-bold text-zinc-900">Arjun Mehta</p>
+                    <p className="text-[10px] text-zinc-400 mt-0.5">arjun@email.com · 5 yrs exp · B.Tech CS</p>
                   </div>
-                  
-                  <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">
-                    {screenedCandidates.map((cand, idx) => (
-                      <div 
-                        key={cand.candidate_id}
-                        className={`p-3 rounded-xl border flex items-center justify-between ${selectedCandidateId === cand.candidate_id ? "bg-zinc-800/80 border-indigo-500/20" : "bg-zinc-900/20 border-white/5"}`}
-                      >
-                        <div className="flex items-center space-x-2 min-w-0">
-                          <input 
-                            type="checkbox" 
-                            checked={selectedCompareIds.includes(cand.candidate_id)}
-                            onChange={() => handleToggleCompare(cand.candidate_id)}
-                            className="rounded border-zinc-700 bg-zinc-900 text-indigo-600 focus:ring-indigo-500/50"
-                          />
-                          <button
-                            onClick={() => handleSelectCandidate(cand.candidate_id)}
-                            className="text-left min-w-0"
-                          >
-                            <p className="font-semibold text-xs text-zinc-200 truncate hover:text-indigo-400 transition">{cand.name}</p>
-                            <p className="text-[10px] text-zinc-500 mt-0.5">{cand.experience_years} yrs exp</p>
-                          </button>
-                        </div>
-                        <div className="flex items-center space-x-1.5 ml-2">
-                          <div className={`text-xs font-bold px-2 py-0.5 rounded-full ${cand.overall_score >= 80 ? "bg-emerald-500/10 text-emerald-400" : cand.overall_score >= 60 ? "bg-yellow-500/10 text-yellow-400" : "bg-zinc-800 text-zinc-400"}`}>
-                            {intVal(cand.overall_score)}%
-                          </div>
-                          <span className="text-[10px] text-zinc-500 font-bold">#{idx + 1}</span>
-                        </div>
-                      </div>
-                    ))}
-                    {screenedCandidates.length === 0 && (
-                      <p className="text-xs text-zinc-500 text-center py-4">No candidates matched. Upload a resume to screen.</p>
-                    )}
+                  <div className="text-right">
+                    <p className="text-[9px] text-zinc-400 uppercase tracking-wider font-semibold">AI Match Score</p>
+                    <p className="text-2xl font-black text-blue-600 mt-0.5">91%</p>
                   </div>
                 </div>
-              )}
+
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { label: "Semantic", value: 94, color: "bg-blue-600" },
+                    { label: "Skills", value: 88, color: "bg-violet-500" },
+                    { label: "Experience", value: 90, color: "bg-emerald-500" },
+                    { label: "Education", value: 85, color: "bg-sky-500" },
+                    { label: "Projects", value: 92, color: "bg-pink-500" },
+                    { label: "ATS Compat.", value: 95, color: "bg-amber-500" },
+                  ].map(({ label, value, color }) => (
+                    <div key={label} className="space-y-1">
+                      <div className="flex justify-between text-[9px]">
+                        <span className="text-zinc-500">{label}</span>
+                        <span className="text-zinc-700 font-semibold">{value}%</span>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-zinc-100">
+                        <div className={`h-1.5 rounded-full ${color}`} style={{ width: `${value}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 text-[10px] text-zinc-500 leading-relaxed">
+                  <span className="font-semibold text-zinc-700">AI Summary:</span> Arjun&apos;s experience with distributed systems closely matches role requirements. Skill gap: Terraform — <span className="text-blue-600 font-medium">Learning path generated.</span>
+                </div>
+
+                <div className="flex gap-2">
+                  <div className="flex-1 bg-zinc-50 border border-zinc-200 rounded-lg px-3 py-2 text-[10px] text-zinc-400">
+                    Why was candidate A ranked higher?
+                  </div>
+                  <div className="px-3 py-2 bg-blue-600 rounded-lg text-[10px] text-white font-semibold flex items-center gap-1 cursor-pointer">
+                    <Sparkles className="h-3 w-3" /> Ask
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── Trust / Tech Bar ──────────────────────────────────────────────── */}
+        <section className="border-y border-zinc-100 bg-zinc-50">
+          <div className="max-w-7xl mx-auto px-6 py-6 flex flex-col md:flex-row items-center gap-6 md:gap-12">
+            <p className="text-xs font-semibold text-zinc-400 uppercase tracking-widest shrink-0">
+              Built for enterprise scale
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-8">
+              {TECH.map(({ label }) => (
+                <span key={label} className="text-sm font-semibold text-zinc-400 hover:text-zinc-600 transition-colors">
+                  {label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Core Features Grid ────────────────────────────────────────────── */}
+        <section id="features" className="max-w-7xl mx-auto px-6 py-24">
+          <div className="mb-12 max-w-2xl">
+            <p className="text-xs font-semibold text-blue-600 uppercase tracking-widest mb-3">Platform Capabilities</p>
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight text-zinc-900 mb-4">
+              Beyond keyword matching.
+            </h2>
+            <p className="text-zinc-500 text-lg leading-relaxed">
+              Every feature gives recruiters deep signal, not just surface-level resume scanning.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {FEATURES.map((f) => (
+              <FeatureCard key={f.title} {...f} />
+            ))}
+          </div>
+        </section>
+
+        {/* ── How It Works ──────────────────────────────────────────────────── */}
+        <section id="how-it-works" className="bg-zinc-50 border-y border-zinc-100">
+          <div className="max-w-7xl mx-auto px-6 py-24">
+            <div className="mb-12 text-center max-w-2xl mx-auto">
+              <p className="text-xs font-semibold text-blue-600 uppercase tracking-widest mb-3">Workflow</p>
+              <h2 className="text-3xl md:text-4xl font-black tracking-tight text-zinc-900 mb-4">
+                From upload to hire decision.
+              </h2>
+              <p className="text-zinc-500 text-lg leading-relaxed">
+                A three-step pipeline that turns a stack of resumes into ranked, AI-evaluated candidate profiles.
+              </p>
             </div>
 
-            {/* Right Panel: Detailed Metrics or Comparison Matrix */}
-            <div className="lg:col-span-2 space-y-6">
-              
-              {/* Matrix Compare Mode */}
-              {comparisonResult && (
-                <div className="glass-panel p-6 rounded-2xl space-y-4">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                    <h3 className="font-semibold text-white">Candidate Comparison: {comparisonResult.job_title}</h3>
-                    <button 
-                      onClick={() => setComparisonResult(null)}
-                      className="text-xs text-indigo-400 font-medium hover:underline"
-                    >
-                      Clear Comparison
-                    </button>
-                  </div>
-                  
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm border-collapse">
-                      <thead>
-                        <tr className="border-b border-white/5">
-                          <th className="py-3 px-4 text-zinc-400 font-medium">Screening Metric</th>
-                          {comparisonResult.candidates.map((c: any) => (
-                            <th key={c.candidate_id} className="py-3 px-4 font-bold text-white text-center">
-                              {c.name}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-white/5">
-                        <tr>
-                          <td className="py-3 px-4 text-zinc-400 font-medium">Hiring Rank</td>
-                          {comparisonResult.candidates.map((c: any) => (
-                            <td key={c.candidate_id} className="py-3 px-4 text-center font-extrabold text-indigo-400">
-                              #{c.rank}
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="py-3 px-4 text-zinc-400 font-medium">Overall Score</td>
-                          {comparisonResult.candidates.map((c: any) => (
-                            <td key={c.candidate_id} className="py-3 px-4 text-center">
-                              <span className="font-bold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400">
-                                {intVal(c.overall_score)}%
-                              </span>
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="py-3 px-4 text-zinc-400 font-medium">Semantic Match</td>
-                          {comparisonResult.candidates.map((c: any) => (
-                            <td key={c.candidate_id} className="py-3 px-4 text-center font-semibold text-zinc-200">
-                              {intVal(c.semantic_match_score)}%
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="py-3 px-4 text-zinc-400 font-medium">Skills Match</td>
-                          {comparisonResult.candidates.map((c: any) => (
-                            <td key={c.candidate_id} className="py-3 px-4 text-center text-zinc-200">
-                              {intVal(c.skills_match_score)}%
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="py-3 px-4 text-zinc-400 font-medium">Experience</td>
-                          {comparisonResult.candidates.map((c: any) => (
-                            <td key={c.candidate_id} className="py-3 px-4 text-center text-zinc-200">
-                              {c.experience_years} Years
-                            </td>
-                          ))}
-                        </tr>
-                        <tr>
-                          <td className="py-3 px-4 text-zinc-400 font-medium">ATS Score</td>
-                          {comparisonResult.candidates.map((c: any) => (
-                            <td key={c.candidate_id} className="py-3 px-4 text-center text-zinc-200">
-                              {intVal(c.ats_compatibility_score)}/100
-                            </td>
-                          ))}
-                        </tr>
-                      </tbody>
-                    </table>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Step 1 */}
+              <StepCard number={STEPS[0].number} title={STEPS[0].title} description={STEPS[0].description}>
+                {/* Upload drag-and-drop mock */}
+                <div className="w-full max-w-[200px] border-2 border-dashed border-blue-200 rounded-xl bg-white px-4 py-6 text-center">
+                  <UploadCloud className="h-8 w-8 text-blue-400 mx-auto mb-2" />
+                  <p className="text-xs font-medium text-zinc-600">Drop files here</p>
+                  <p className="text-[10px] text-zinc-400 mt-1">PDF, DOCX, TXT — up to 20 MB</p>
+                  <div className="mt-3 px-3 py-1.5 bg-blue-600 rounded-lg text-[10px] text-white font-semibold">
+                    Browse Files
                   </div>
                 </div>
-              )}
+              </StepCard>
 
-              {/* Candidate Screening Result Screen */}
-              {isScreening ? (
-                <div className="glass-panel p-12 rounded-2xl text-center space-y-4">
-                  <div className="h-16 w-16 mx-auto rounded-full border-4 border-indigo-500/30 border-t-indigo-500 animate-spin"></div>
-                  <h4 className="font-semibold text-white text-lg">AI Matching Engine Processing...</h4>
-                  <p className="text-xs text-zinc-400 max-w-sm mx-auto">Evaluating Candidate resume text structures, performing token expansion and checking database parameters.</p>
-                </div>
-              ) : matchDetail ? (
-                <div className="space-y-6">
-                  
-                  {/* Summary Card */}
-                  <div className="glass-panel p-6 rounded-2xl space-y-4">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h2 className="text-xl font-bold text-white">{matchDetail.candidate.name}</h2>
-                        <p className="text-xs text-zinc-400 mt-1">{matchDetail.candidate.email} | {matchDetail.candidate.phone}</p>
-                      </div>
-                      <div className="flex flex-col items-end">
-                        <span className="text-xs text-zinc-500 uppercase tracking-wider font-semibold">Screen Match</span>
-                        <span className="text-3xl font-extrabold text-indigo-400 mt-1">{intVal(matchDetail.overall_score)}%</span>
-                      </div>
-                    </div>
-                    
-                    <div className="p-4 rounded-xl bg-zinc-900/60 border border-white/5 text-sm text-zinc-300 leading-relaxed italic">
-                      &ldquo;{matchDetail.ai_summary}&rdquo;
-                    </div>
-
-                    {/* Breakdown Scores */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
-                      <div className="p-3 bg-zinc-900/40 border border-white/5 rounded-xl text-center">
-                        <p className="text-[10px] text-zinc-500 font-semibold uppercase">Semantic</p>
-                        <p className="text-lg font-bold text-white mt-0.5">{intVal(matchDetail.semantic_match_score)}%</p>
-                      </div>
-                      <div className="p-3 bg-zinc-900/40 border border-white/5 rounded-xl text-center">
-                        <p className="text-[10px] text-zinc-500 font-semibold uppercase">Skills</p>
-                        <p className="text-lg font-bold text-white mt-0.5">{intVal(matchDetail.skills_match_score)}%</p>
-                      </div>
-                      <div className="p-3 bg-zinc-900/40 border border-white/5 rounded-xl text-center">
-                        <p className="text-[10px] text-zinc-500 font-semibold uppercase">Experience</p>
-                        <p className="text-lg font-bold text-white mt-0.5">{intVal(matchDetail.experience_match_score)}%</p>
-                      </div>
-                      <div className="p-3 bg-zinc-900/40 border border-white/5 rounded-xl text-center">
-                        <p className="text-[10px] text-zinc-500 font-semibold uppercase">ATS Score</p>
-                        <p className="text-lg font-bold text-white mt-0.5">{intVal(matchDetail.ats_compatibility_score)}/100</p>
-                      </div>
-                    </div>
+              {/* Step 2 */}
+              <StepCard number={STEPS[1].number} title={STEPS[1].title} description={STEPS[1].description}>
+                {/* JD input mock */}
+                <div className="w-full space-y-2">
+                  <div className="bg-white border border-zinc-200 rounded-lg p-3 text-[10px] text-zinc-400 leading-relaxed h-16 overflow-hidden">
+                    We are looking for a Senior Backend Engineer with 4+ years of experience in Python, FastAPI, and PostgreSQL…
                   </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1 bg-white border border-zinc-200 rounded-lg px-3 py-2 text-[10px] text-zinc-400">Engineering</div>
+                    <div className="px-3 py-2 bg-blue-600 rounded-lg text-[10px] text-white font-semibold">Create Job</div>
+                  </div>
+                </div>
+              </StepCard>
 
-                  {/* Skills Gap Analysis */}
-                  <div className="glass-panel p-6 rounded-2xl space-y-4">
-                    <h3 className="font-semibold text-white flex items-center space-x-2">
-                      <AlertTriangle className="h-5 w-5 text-yellow-400" />
-                      <span>Skill Gap Analysis</span>
-                    </h3>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-3">
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs text-zinc-400">Analysis Priority:</span>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${matchDetail.gap_analysis.priority === "High" ? "bg-red-500/10 text-red-400" : "bg-yellow-500/10 text-yellow-400"}`}>
-                            {matchDetail.gap_analysis.priority}
+              {/* Step 3 */}
+              <StepCard number={STEPS[2].number} title={STEPS[2].title} description={STEPS[2].description}>
+                {/* Results mock */}
+                <div className="w-full space-y-2">
+                  {[
+                    { name: "Arjun Mehta", score: 91, color: "text-emerald-700 bg-emerald-50" },
+                    { name: "Priya Sharma", score: 78, color: "text-yellow-700 bg-yellow-50" },
+                    { name: "David Chen", score: 64, color: "text-zinc-600 bg-zinc-100" },
+                  ].map(({ name, score, color }, i) => (
+                    <div key={name} className="flex items-center justify-between bg-white border border-zinc-200 rounded-lg px-3 py-2 shadow-sm">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[9px] font-bold text-zinc-400">#{i + 1}</span>
+                        <span className="text-[11px] font-semibold text-zinc-700">{name}</span>
+                      </div>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${color}`}>{score}%</span>
+                    </div>
+                  ))}
+                </div>
+              </StepCard>
+            </div>
+
+            {/* Connector arrows */}
+            <div className="hidden md:flex items-center justify-center mt-8 gap-2 text-xs text-zinc-400 font-medium">
+              {["Upload", "Configure", "Review Results"].map((label, i, arr) => (
+                <React.Fragment key={label}>
+                  <span className="px-3 py-1.5 rounded-full bg-white border border-zinc-200 text-zinc-500 shadow-sm">{label}</span>
+                  {i < arr.length - 1 && <ChevronRight className="h-4 w-4 text-zinc-300 shrink-0" />}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* ── Security / RBAC Section ───────────────────────────────────────── */}
+        <section id="security" className="max-w-7xl mx-auto px-6 py-24">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-start">
+            {/* Left copy */}
+            <div className="space-y-6">
+              <p className="text-xs font-semibold text-blue-600 uppercase tracking-widest">Access Control</p>
+              <h2 className="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">
+                Security by Design.
+              </h2>
+              <p className="text-zinc-500 text-lg leading-relaxed">
+                Data privacy is paramount. The platform enforces strict permission boundaries across the entire recruitment pipeline. Candidates never see each other. Hiring managers see only their assigned pipelines.
+              </p>
+              <ul className="space-y-3 pt-2">
+                {[
+                  "API key authentication on every backend route",
+                  "LLM API keys stay server-side — never exposed to clients",
+                  "Offline / local mode: no candidate data leaves your machine",
+                  "Isolated candidate profiles per job pipeline",
+                  "Resume text parsed and stored in local SQLite only",
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-3 text-sm text-zinc-600">
+                    <CheckCircle className="h-4 w-4 text-emerald-500 shrink-0 mt-0.5" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Right: Role table mockup */}
+            <div className="border border-zinc-200 rounded-xl overflow-hidden shadow-sm">
+              <div className="px-5 py-4 border-b border-zinc-200 bg-zinc-50 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-blue-600" />
+                <h4 className="text-sm font-semibold text-zinc-800">Role Hierarchy & Permissions</h4>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead>
+                    <tr className="border-b border-zinc-200 bg-zinc-50">
+                      <th className="py-3 px-5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Role</th>
+                      <th className="py-3 px-5 text-left text-xs font-semibold text-zinc-500 uppercase tracking-wider">Data Access</th>
+                      <th className="py-3 px-4 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">Upload</th>
+                      <th className="py-3 px-4 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">Compare</th>
+                      <th className="py-3 px-4 text-center text-xs font-semibold text-zinc-500 uppercase tracking-wider">Manage</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {ROLES.map(({ role, access, upload, compare, manage }) => (
+                      <tr key={role} className="bg-white hover:bg-zinc-50 transition-colors">
+                        <td className="py-3.5 px-5 font-semibold text-zinc-800">{role}</td>
+                        <td className="py-3.5 px-5">
+                          <span className="text-xs px-2 py-1 rounded-md bg-zinc-100 text-zinc-600 border border-zinc-200 font-medium whitespace-nowrap">
+                            {access}
                           </span>
-                        </div>
-                        
-                        <div className="space-y-1">
-                          <p className="text-xs text-zinc-400 font-medium">Missing Competencies:</p>
-                          <div className="flex flex-wrap gap-1.5 pt-1">
-                            {matchDetail.gap_analysis.missing_skills.map((skill, idx) => (
-                              <span key={idx} className="text-xs px-2.5 py-1 rounded bg-red-500/10 text-red-400 border border-red-500/20 font-medium">
-                                {skill}
-                              </span>
-                            ))}
-                            {matchDetail.gap_analysis.missing_skills.length === 0 && (
-                              <span className="text-xs text-zinc-500 italic">No missing skills detected! Perfect alignment.</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <p className="text-xs text-zinc-400 font-medium">Recommended Learning Paths:</p>
-                        <ul className="space-y-1.5 max-h-[120px] overflow-y-auto pr-1">
-                          {matchDetail.gap_analysis.recommended_learning_path.map((path, idx) => (
-                            <li key={idx} className="text-xs text-zinc-300 flex items-start space-x-1.5">
-                              <span className="text-indigo-400 mt-0.5 font-bold">•</span>
-                              <span>{path}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Resume Bullet Points Suggestions */}
-                  <div className="glass-panel p-6 rounded-2xl space-y-4">
-                    <h3 className="font-semibold text-white flex items-center space-x-2">
-                      <BookOpenText className="h-5 w-5 text-indigo-400" />
-                      <span>Resume Improvement suggestions</span>
-                    </h3>
-                    
-                    <div className="space-y-3">
-                      {matchDetail.resume_improvement.map((item, idx) => (
-                        <div key={idx} className="p-4 bg-zinc-900/40 border border-white/5 rounded-xl space-y-2">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                              <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider">Before (Weak)</span>
-                              <p className="text-xs text-zinc-400 mt-1 italic">&ldquo;{item.before}&rdquo;</p>
-                            </div>
-                            <div>
-                              <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">After (AI-Enhanced Impact)</span>
-                              <p className="text-xs text-zinc-200 mt-1 font-medium">&ldquo;{item.after}&rdquo;</p>
-                            </div>
-                          </div>
-                          <div className="text-[11px] text-zinc-500 pt-1 border-t border-white/5">
-                            <span className="font-semibold text-zinc-400">Rationale: </span>{item.rationale}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* AI Generated Interview Trainer Simulator */}
-                  <div className="glass-panel p-6 rounded-2xl space-y-4">
-                    <h3 className="font-semibold text-white flex items-center space-x-2">
-                      <MessageSquareCode className="h-5 w-5 text-pink-400" />
-                      <span>AI Mock Interview Simulator</span>
-                    </h3>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      
-                      {/* Left: Questions Column list */}
-                      <div className="md:col-span-1 space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                        <p className="text-xs text-zinc-500 font-semibold uppercase">Choose Interview Question</p>
-                        
-                        {/* Technical questions list */}
-                        {matchDetail.interview_questions.technical.map((q, i) => (
-                          <button
-                            key={`tech-${i}`}
-                            onClick={() => handleSimulateAnswer("technical", q)}
-                            className="w-full text-left p-2.5 rounded-lg text-xs bg-zinc-900/50 hover:bg-zinc-900 border border-white/5 hover:border-pink-500/30 text-zinc-300 leading-snug transition"
-                          >
-                            <span className="font-bold text-[9px] text-pink-400 block mb-0.5">TECHNICAL</span>
-                            {q}
-                          </button>
-                        ))}
-
-                        {/* Behavioral questions */}
-                        {matchDetail.interview_questions.behavioral.map((q, i) => (
-                          <button
-                            key={`behav-${i}`}
-                            onClick={() => handleSimulateAnswer("behavioral", q)}
-                            className="w-full text-left p-2.5 rounded-lg text-xs bg-zinc-900/50 hover:bg-zinc-900 border border-white/5 hover:border-indigo-500/30 text-zinc-300 leading-snug transition"
-                          >
-                            <span className="font-bold text-[9px] text-indigo-400 block mb-0.5">BEHAVIORAL</span>
-                            {q}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Right: simulator run output */}
-                      <div className="md:col-span-2 p-4 bg-zinc-950 rounded-xl border border-white/5 space-y-4">
-                        {activeQuestion ? (
-                          <div className="space-y-4">
-                            <div>
-                              <span className="text-[10px] text-pink-400 font-bold uppercase tracking-wider">{activeQuestion.category} Question</span>
-                              <p className="text-sm font-semibold text-white mt-1">{activeQuestion.question}</p>
-                            </div>
-                            
-                            {isSimulating ? (
-                              <div className="py-8 text-center text-xs text-zinc-500 flex flex-col items-center justify-center space-y-2">
-                                <span className="h-5 w-5 rounded-full border-2 border-pink-500/20 border-t-pink-500 animate-spin"></span>
-                                <span>Generating simulated response...</span>
-                              </div>
-                            ) : (
-                              <div className="space-y-3">
-                                <div className="p-3 bg-zinc-900 rounded-lg border border-white/5">
-                                  <span className="text-[9px] text-zinc-500 font-bold block uppercase mb-1">Simulated Answer</span>
-                                  <p className="text-xs text-zinc-300 leading-relaxed font-mono">{simulatedAnswer}</p>
-                                </div>
-                                
-                                <div className="p-3 bg-indigo-950/20 rounded-lg border border-indigo-500/10">
-                                  <span className="text-[9px] text-indigo-400 font-bold block uppercase mb-1">AI Diagnostic Feedback</span>
-                                  <p className="text-xs text-indigo-200 leading-relaxed italic">{simulationFeedback}</p>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="h-full flex flex-col items-center justify-center text-center py-12 text-zinc-500 space-y-2">
-                            <HelpCircle className="h-8 w-8 text-zinc-600" />
-                            <p className="text-xs">Select any question on the left to simulate a candidate response and run diagnostic grading.</p>
-                          </div>
-                        )}
-                      </div>
-
-                    </div>
-                  </div>
-
-                </div>
-              ) : (
-                <div className="glass-panel p-16 rounded-2xl text-center text-zinc-500 space-y-2">
-                  <UserCheck className="h-10 w-10 mx-auto text-zinc-600" />
-                  <h4 className="font-semibold text-white">Select Candidate profile</h4>
-                  <p className="text-xs max-w-sm mx-auto">Click on a screened standing card on the left panel to load the candidate's metrics, skill gap analysis, and practice interviews.</p>
-                </div>
-              )}
-            </div>
-
-          </div>
-        )}
-
-        {/* ==================== TAB 3: CANDIDATE PORTAL HUB ==================== */}
-        {activeTab === "candidate" && (
-          <div className="max-w-3xl mx-auto space-y-8">
-            <div className="glass-panel p-8 rounded-3xl space-y-6 relative overflow-hidden">
-              <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 opacity-5 pointer-events-none">
-                <Sparkles className="h-64 w-64 text-indigo-400" />
-              </div>
-              
-              <div className="space-y-2">
-                <h2 className="text-2xl font-black text-white">Candidate AI Screening Portal</h2>
-                <p className="text-sm text-zinc-400">Upload your resume to calculate your compatibility scores against active job description openings and receive improvement suggestions.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
-                <div>
-                  <label className="text-xs font-semibold text-zinc-400 block mb-2">Select Target Job Opening</label>
-                  <select 
-                    value={selectedJobId} 
-                    onChange={(e) => setSelectedJobId(e.target.value)}
-                    className="w-full bg-zinc-900 border border-white/8 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 text-white"
-                  >
-                    {jobs.map(j => (
-                      <option key={j.id} value={j.id}>{j.title}</option>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          {upload
+                            ? <CheckCircle className="h-4 w-4 text-emerald-500 mx-auto" />
+                            : <span className="text-zinc-300 font-bold text-base leading-none">—</span>}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          {compare
+                            ? <CheckCircle className="h-4 w-4 text-emerald-500 mx-auto" />
+                            : <span className="text-zinc-300 font-bold text-base leading-none">—</span>}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          {manage
+                            ? <CheckCircle className="h-4 w-4 text-emerald-500 mx-auto" />
+                            : <span className="text-zinc-300 font-bold text-base leading-none">—</span>}
+                        </td>
+                      </tr>
                     ))}
-                  </select>
-                </div>
-                
-                <div className="flex flex-col justify-end">
-                  <input 
-                    type="file" 
-                    id="cand-file"
-                    onChange={handleFileUpload}
-                    accept=".pdf,.docx,.txt"
-                    className="hidden" 
-                  />
-                  <button
-                    onClick={() => document.getElementById("cand-file")?.click()}
-                    disabled={isUploading}
-                    className="py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-pink-600 hover:opacity-90 text-white font-medium text-sm flex items-center justify-center space-x-2 transition shadow-lg shadow-indigo-600/10 disabled:opacity-50"
-                  >
-                    {isUploading ? (
-                      <span className="h-4 w-4 rounded-full border-2 border-white/30 border-t-white animate-spin"></span>
-                    ) : (
-                      <>
-                        <UploadCloud className="h-4 w-4" />
-                        <span>Upload Your Resume</span>
-                      </>
-                    )}
-                  </button>
-                </div>
+                  </tbody>
+                </table>
               </div>
             </div>
-
-            {/* Quick Candidate Portal Results */}
-            {candidates.length > 0 && selectedJobId && (
-              <div className="space-y-4">
-                <p className="text-xs text-zinc-500 font-bold uppercase tracking-wider">Select Candidate profile to inspect</p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {candidates.slice(0, 6).map(cand => (
-                    <button
-                      key={cand.id}
-                      onClick={() => handleSelectCandidate(cand.id)}
-                      className={`p-4 rounded-xl border text-left space-y-2 transition ${selectedCandidateId === cand.id ? "bg-indigo-600/10 border-indigo-500/40 text-white" : "bg-zinc-900/40 border-white/5 text-zinc-400 hover:bg-zinc-900/60"}`}
-                    >
-                      <p className="font-semibold text-sm truncate">{cand.name}</p>
-                      <p className="text-xs text-zinc-500">{cand.experience_years} years exp</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {/* Display matched suggestions directly to candidates */}
-            {matchDetail && selectedCandidateId && (
-              <div className="space-y-6">
-                
-                {/* Score Circle Card */}
-                <div className="glass-panel p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
-                  <div className="space-y-2 text-center md:text-left">
-                    <h3 className="text-xl font-bold text-white">Your ATS Compatibility Rating</h3>
-                    <p className="text-xs text-zinc-400 max-w-sm">This rating highlights your keyword alignment, structural order, action verbs, and experience matches against the job description.</p>
-                  </div>
-                  
-                  <div className="relative flex items-center justify-center">
-                    {/* SVG Progress Circle */}
-                    <svg className="w-24 h-24 transform -rotate-90">
-                      <circle cx="48" cy="48" r="40" stroke="rgba(255,255,255,0.03)" strokeWidth="8" fill="transparent" />
-                      <circle cx="48" cy="48" r="40" stroke="#6366f1" strokeWidth="8" fill="transparent"
-                        strokeDasharray={251.2}
-                        strokeDashoffset={251.2 - (251.2 * matchDetail.overall_score) / 100}
-                        className="transition-all duration-1000 ease-out"
-                      />
-                    </svg>
-                    <span className="absolute text-xl font-extrabold text-white">{intVal(matchDetail.overall_score)}%</span>
-                  </div>
-                </div>
-
-                {/* Candidate Improvement Bullet Points */}
-                <div className="glass-panel p-6 rounded-2xl space-y-4">
-                  <h3 className="font-semibold text-white flex items-center space-x-2">
-                    <Award className="h-5 w-5 text-indigo-400" />
-                    <span>Suggestions to optimize your Resume bullets</span>
-                  </h3>
-                  
-                  <div className="space-y-3">
-                    {matchDetail.resume_improvement.map((item, idx) => (
-                      <div key={idx} className="p-4 bg-zinc-900/40 border border-white/5 rounded-xl space-y-2">
-                        <div className="flex items-center space-x-1.5 text-[10px] font-extrabold text-red-400">
-                          <span>Original phrasing:</span>
-                        </div>
-                        <p className="text-xs text-zinc-400 italic">&ldquo;{item.before}&rdquo;</p>
-                        
-                        <div className="flex items-center space-x-1.5 text-[10px] font-extrabold text-emerald-400 pt-1">
-                          <Sparkles className="h-3 w-3" />
-                          <span>AI-Enhanced Impact suggestion:</span>
-                        </div>
-                        <p className="text-xs text-zinc-200 font-medium">&ldquo;{item.after}&rdquo;</p>
-                        <p className="text-[10px] text-zinc-500 pt-1 border-t border-white/5">
-                          <span className="font-semibold text-zinc-400">Why this improves your score:</span> {item.rationale}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Skill Learning Roadmap */}
-                <div className="glass-panel p-6 rounded-2xl space-y-4">
-                  <h3 className="font-semibold text-white flex items-center space-x-2">
-                    <BookOpen className="h-5 w-5 text-pink-400" />
-                    <span>Tailored Skill Upgrading Roadmap</span>
-                  </h3>
-                  <div className="space-y-2">
-                    {matchDetail.gap_analysis.missing_skills.length > 0 ? (
-                      <>
-                        <p className="text-xs text-zinc-400">Our engine detected missing skills required for this job. Follow this roadmap to boost matching score:</p>
-                        <div className="space-y-3 pt-2">
-                          {matchDetail.gap_analysis.recommended_learning_path.map((path, idx) => (
-                            <div key={idx} className="flex items-start space-x-3 text-xs text-zinc-300">
-                              <span className="h-5 w-5 rounded-full bg-pink-500/10 text-pink-400 border border-pink-500/20 flex items-center justify-center font-bold text-[10px]">
-                                {idx + 1}
-                              </span>
-                              <span className="mt-0.5">{path}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-xs text-emerald-400 italic">Excellent! You match all requirements. Practice mock interviews to prepare for technical checks.</p>
-                    )}
-                  </div>
-                </div>
-
-              </div>
-            )}
-
           </div>
-        )}
+        </section>
 
+        {/* ── CTA Banner ────────────────────────────────────────────────────── */}
+        <section className="bg-zinc-50 border-t border-zinc-100">
+          <div className="max-w-7xl mx-auto px-6 py-20 text-center space-y-6">
+            <h2 className="text-3xl md:text-4xl font-black tracking-tight text-zinc-900">
+              Ready to screen smarter?
+            </h2>
+            <p className="text-zinc-500 text-lg max-w-xl mx-auto leading-relaxed">
+              Runs entirely on your machine. No signup, no cloud dependency, no vendor lock-in. Start the FastAPI backend and open the dashboard.
+            </p>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-2">
+              <Link
+                href="/dashboard"
+                className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-3 rounded-lg shadow-sm transition-colors flex items-center justify-center gap-2"
+              >
+                Access Dashboard
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <a
+                href="https://github.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full sm:w-auto bg-white border border-zinc-200 hover:border-zinc-300 hover:shadow-sm text-zinc-700 font-semibold px-8 py-3 rounded-lg transition-all flex items-center justify-center gap-2"
+              >
+                <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.477 2 2 6.484 2 12.021c0 4.428 2.865 8.185 6.839 9.504.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.071 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0 1 12 6.844a9.59 9.59 0 0 1 2.504.337c1.909-1.296 2.747-1.026 2.747-1.026.546 1.378.202 2.397.1 2.65.64.7 1.028 1.595 1.028 2.688 0 3.848-2.338 4.695-4.566 4.944.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.579.688.481C19.138 20.203 22 16.447 22 12.021 22 6.484 17.523 2 12 2z"/></svg>
+                View on GitHub
+              </a>
+            </div>
+          </div>
+        </section>
       </main>
 
-      {/* ==================== CREATE JOB MODAL ==================== */}
-      {showJobModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="w-full max-w-2xl bg-zinc-900 rounded-3xl border border-white/10 p-6 space-y-6 relative">
-            <div className="flex items-center justify-between border-b border-white/5 pb-3">
-              <h3 className="text-lg font-bold text-white">Create New Job Description Opening</h3>
-              <button 
-                onClick={() => setShowJobModal(false)}
-                className="text-zinc-500 hover:text-white transition"
-              >
-                ✕
-              </button>
+      {/* ── Footer ──────────────────────────────────────────────────────────── */}
+      <footer className="border-t border-zinc-200 bg-white">
+        <div className="max-w-7xl mx-auto px-6 py-8 flex flex-col md:flex-row items-center justify-between gap-4">
+          {/* Logo */}
+          <Link href="/" className="flex items-center gap-2 group">
+            <div className="h-6 w-6 bg-blue-600 flex items-center justify-center rounded-md group-hover:bg-blue-700 transition-colors">
+              <Square className="h-3 w-3 text-white fill-white" />
             </div>
-            
-            <form onSubmit={handleCreateJob} className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-zinc-400 block mb-1">Job Title*</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={jobTitle}
-                    onChange={(e) => setJobTitle(e.target.value)}
-                    placeholder="Senior Python Engineer"
-                    className="w-full bg-zinc-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-white placeholder-zinc-500"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-zinc-400 block mb-1">Department</label>
-                  <input 
-                    type="text" 
-                    value={jobDept}
-                    onChange={(e) => setJobDept(e.target.value)}
-                    placeholder="Engineering / Core Tech"
-                    className="w-full bg-zinc-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-white placeholder-zinc-500"
-                  />
-                </div>
-              </div>
+            <span className="font-bold text-sm tracking-tight text-zinc-700 group-hover:text-zinc-900 transition-colors">
+              ATS Intelligence
+            </span>
+          </Link>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-zinc-400 block mb-1">Required Exp (Years)*</label>
-                  <input 
-                    type="number" 
-                    required
-                    value={isNaN(jobExp) ? "" : jobExp}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      setJobExp(isNaN(val) ? 0 : val);
-                    }}
-                    min="0"
-                    max="20"
-                    className="w-full bg-zinc-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-white"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-zinc-400 block mb-1">Minimum Education*</label>
-                  <input 
-                    type="text" 
-                    required
-                    value={jobEdu}
-                    onChange={(e) => setJobEdu(e.target.value)}
-                    placeholder="B.S. in Computer Science"
-                    className="w-full bg-zinc-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs text-zinc-400 block mb-1">Job Description Requirements text*</label>
-                <textarea 
-                  required
-                  value={jobText}
-                  onChange={(e) => setJobText(e.target.value)}
-                  rows={6}
-                  placeholder="Paste details of requirements, responsibilities and required skill sets..."
-                  className="w-full bg-zinc-950 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-indigo-500 text-white placeholder-zinc-500"
-                ></textarea>
-              </div>
-
-              <div className="flex justify-end space-x-3 pt-2">
-                <button 
-                  type="button"
-                  onClick={() => setShowJobModal(false)}
-                  className="px-5 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium text-xs transition"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs transition"
-                >
-                  Create Campaign
-                </button>
-              </div>
-            </form>
+          {/* Links */}
+          <div className="flex items-center gap-6">
+            <a href="#" className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors">Privacy</a>
+            <a href="#" className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors">Terms</a>
+            <a href="https://github.com" target="_blank" rel="noopener noreferrer" className="text-xs text-zinc-400 hover:text-zinc-700 transition-colors">GitHub</a>
           </div>
-        </div>
-      )}
 
-      {/* Footer */}
-      <footer className="border-t border-white/5 py-6 bg-zinc-950/40 text-center text-xs text-zinc-600">
-        <p>© 2026 ATS Resume Intelligence Platform. Engineered for Applied AI systems.</p>
+          {/* Copyright */}
+          <p className="text-xs text-zinc-400">
+            &copy; {new Date().getFullYear()} ATS Resume Intelligence. Built with FastAPI + LangGraph.
+          </p>
+        </div>
       </footer>
     </div>
   );
